@@ -1,0 +1,64 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check .
+      # Tolerate "no tests collected" (exit 5) until the first feature adds tests.
+      - run: pytest tests/ -q || [ $? -eq 5 ]
+
+  integration-localstack:
+    runs-on: ubuntu-latest
+    needs: unit
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - run: pip install -r requirements-dev.txt terraform-local awscli-local
+
+      # The integration stack (docker-compose.yml + infra/) is created in
+      # spec 001. Until it exists, this job skips gracefully; once it lands it
+      # activates automatically. Bedrock/Aurora tests (spec 002+) are env-gated
+      # and skip here because no AWS credentials are present.
+      - name: Run LocalStack integration (if the stack exists)
+        env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+        run: |
+          if [ ! -f docker-compose.yml ] || [ ! -d infra ]; then
+            echo "No LocalStack stack yet (docker-compose.yml/infra absent) — skipping."
+            exit 0
+          fi
+          docker compose up -d
+          echo "Waiting for LocalStack to report healthy..."
+          ok=""
+          for i in $(seq 1 45); do
+            if curl -sf http://127.0.0.1:4566/_localstack/health >/dev/null 2>&1; then
+              ok=1; echo "LocalStack is up"; break
+            fi
+            sleep 2
+          done
+          if [ -z "$ok" ]; then
+            echo "::error::LocalStack did not become healthy. Logs:"
+            docker compose logs localstack
+            exit 1
+          fi
+          bash scripts/build.sh
+          tflocal -chdir=infra init -input=false
+          tflocal -chdir=infra apply -auto-approve -input=false
+          pytest tests/integration -q || [ $? -eq 5 ]
+        # Endpoint for the integration tests (IPv4 to dodge ::1 surprises)
+        # is read from AWS_ENDPOINT_URL by the test code.
