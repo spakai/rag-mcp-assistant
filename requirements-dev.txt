@@ -1,3 +1,5 @@
 pytest
 ruff
 boto3
+moto[s3,dynamodb]
+pypdf
