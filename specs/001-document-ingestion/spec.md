@@ -1,7 +1,7 @@
 # Spec 001 — Document ingestion skeleton
 
 - **Status:** Ready for planning
-- **Tracking issue:** #<!-- fill in once the GitHub issue is created -->
+- **Tracking issue:** #1
 - **Author:** human (principal)
 
 ## Context
