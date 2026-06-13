@@ -1,0 +1,11 @@
+build/
+sample.png
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.venv/
