@@ -5,12 +5,13 @@ Prerequisites:
   - docker compose up -d
   - bash scripts/deploy-local.sh
 
-Skip automatically when LOCALSTACK_ENDPOINT is not set or the stack is not up.
+Skip automatically when the Terraform stack is not deployed.
 """
 
 import io
 import json
 import os
+import time
 
 import boto3
 import pytest
@@ -47,7 +48,6 @@ def stack():
         "bucket": tf_output["bucket_name"]["value"],
         "documents_table": tf_output["documents_table"]["value"],
         "chunks_table": tf_output["chunks_table"]["value"],
-        "lambda_arn": tf_output["ingest_lambda_arn"]["value"],
     }
 
 
@@ -62,26 +62,24 @@ def aws_clients():
     return {
         "s3": boto3.client("s3", **kwargs),
         "dynamo": boto3.client("dynamodb", **kwargs),
-        "lambda_": boto3.client("lambda", **kwargs),
     }
 
 
-def _invoke_ingest(clients, stack, key: str, body: bytes):
-    """Upload to S3, then directly invoke the Lambda with a synthetic S3 event."""
+def _upload(clients, stack, key: str, body: bytes):
+    """Upload to S3; the S3 event notification triggers the Lambda."""
     clients["s3"].put_object(Bucket=stack["bucket"], Key=key, Body=body)
-    event = {
-        "Records": [{
-            "s3": {
-                "bucket": {"name": stack["bucket"]},
-                "object": {"key": key},
-            }
-        }]
-    }
-    clients["lambda_"].invoke(
-        FunctionName=stack["lambda_arn"],
-        InvocationType="RequestResponse",
-        Payload=json.dumps(event).encode(),
-    )
+
+
+def _wait_for_document(dynamo, table: str, source_key: str, timeout: int = 30) -> list[dict]:
+    """Poll until at least one document record for source_key appears."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        items = _scan_all(dynamo, table)
+        matches = [i for i in items if i["source_key"]["S"] == source_key]
+        if matches:
+            return matches
+        time.sleep(1)
+    return []
 
 
 def _scan_all(dynamo, table: str) -> list[dict]:
@@ -98,12 +96,9 @@ def test_txt_upload_creates_document_and_chunks(stack, aws_clients):
     text = "word " * 300  # ~1500 chars -> 2 chunks with default size/overlap
     key = "documents/integration-test.txt"
 
-    _invoke_ingest(aws_clients, stack, key, text.encode("utf-8"))
+    _upload(aws_clients, stack, key, text.encode("utf-8"))
+    docs = _wait_for_document(aws_clients["dynamo"], stack["documents_table"], key)
 
-    docs = [
-        i for i in _scan_all(aws_clients["dynamo"], stack["documents_table"])
-        if i["source_key"]["S"] == key
-    ]
     assert len(docs) == 1
     doc = docs[0]
     assert doc["status"]["S"] == "ingested"
@@ -128,21 +123,27 @@ def test_idempotency_on_reupload(stack, aws_clients):
     text = "reupload test " * 100
     key = "documents/integration-idempotency.txt"
 
-    _invoke_ingest(aws_clients, stack, key, text.encode("utf-8"))
-    first_docs = [
-        i for i in _scan_all(aws_clients["dynamo"], stack["documents_table"])
-        if i["source_key"]["S"] == key
-    ]
+    _upload(aws_clients, stack, key, text.encode("utf-8"))
+    first_docs = _wait_for_document(aws_clients["dynamo"], stack["documents_table"], key)
     assert len(first_docs) == 1
     first_doc_id = first_docs[0]["document_id"]["S"]
 
-    _invoke_ingest(aws_clients, stack, key, text.encode("utf-8"))
-    second_docs = [
-        i for i in _scan_all(aws_clients["dynamo"], stack["documents_table"])
-        if i["source_key"]["S"] == key
-    ]
+    _upload(aws_clients, stack, key, text.encode("utf-8"))
+    # Wait for a new document_id to appear (idempotency replaces the record)
+    deadline = time.time() + 30
+    second_docs = first_docs
+    while time.time() < deadline:
+        candidates = [
+            i for i in _scan_all(aws_clients["dynamo"], stack["documents_table"])
+            if i["source_key"]["S"] == key
+        ]
+        if len(candidates) == 1 and candidates[0]["document_id"]["S"] != first_doc_id:
+            second_docs = candidates
+            break
+        time.sleep(1)
+
     assert len(second_docs) == 1
-    assert second_docs[0]["document_id"]["S"] != first_doc_id  # new UUID
+    assert second_docs[0]["document_id"]["S"] != first_doc_id
     assert second_docs[0]["chunk_count"]["N"] == first_docs[0]["chunk_count"]["N"]
 
 
@@ -156,10 +157,7 @@ def test_pdf_upload_creates_records(stack, aws_clients):
     writer.write(buf)
     key = "documents/integration-test.pdf"
 
-    _invoke_ingest(aws_clients, stack, key, buf.getvalue())
+    _upload(aws_clients, stack, key, buf.getvalue())
+    docs = _wait_for_document(aws_clients["dynamo"], stack["documents_table"], key)
 
-    docs = [
-        i for i in _scan_all(aws_clients["dynamo"], stack["documents_table"])
-        if i["source_key"]["S"] == key
-    ]
     assert len(docs) == 1
