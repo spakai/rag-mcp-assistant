@@ -53,7 +53,12 @@ def stack():
 
 @pytest.fixture(scope="module")
 def aws_clients():
-    kwargs = {"endpoint_url": LOCALSTACK_ENDPOINT, "region_name": "us-east-1"}
+    kwargs = {
+        "endpoint_url": LOCALSTACK_ENDPOINT,
+        "region_name": "us-east-1",
+        "aws_access_key_id": "test",
+        "aws_secret_access_key": "test",
+    }
     return {
         "s3": boto3.client("s3", **kwargs),
         "dynamo": boto3.client("dynamodb", **kwargs),
