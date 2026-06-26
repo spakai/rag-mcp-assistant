@@ -37,6 +37,11 @@ provider "aws" {
 
 data "aws_caller_identity" "current" {}
 
+locals {
+  # true on real AWS, false when deploying to LocalStack
+  is_aws = var.localstack_endpoint == ""
+}
+
 # ── S3 bucket ────────────────────────────────────────────────────────────────
 
 resource "aws_s3_bucket" "documents" {
@@ -105,56 +110,62 @@ resource "aws_dynamodb_table" "chunks" {
   }
 }
 
-# ── Aurora Serverless v2 + pgvector ──────────────────────────────────────────
+# ── Aurora Serverless v2 + pgvector (real AWS only — skipped on LocalStack) ───
 
 data "aws_vpc" "default" {
+  count   = local.is_aws ? 1 : 0
   default = true
 }
 
 data "aws_availability_zones" "available" {
+  count = local.is_aws ? 1 : 0
   state = "available"
 }
 
 # Aurora requires a subnet group spanning at least 2 AZs.
 # Create two dedicated /24 subnets from the tail of the default VPC's CIDR.
 resource "aws_subnet" "aurora" {
-  count             = 2
-  vpc_id            = data.aws_vpc.default.id
-  cidr_block        = cidrsubnet(data.aws_vpc.default.cidr_block, 8, 96 + count.index)
-  availability_zone = data.aws_availability_zones.available.names[count.index]
+  count             = local.is_aws ? 2 : 0
+  vpc_id            = data.aws_vpc.default[0].id
+  cidr_block        = cidrsubnet(data.aws_vpc.default[0].cidr_block, 8, 96 + count.index)
+  availability_zone = data.aws_availability_zones.available[0].names[count.index]
 
   tags = { Name = "rag-aurora-${count.index}" }
 }
 
 resource "aws_db_subnet_group" "aurora" {
+  count      = local.is_aws ? 1 : 0
   name       = "rag-aurora-subnet-group"
   subnet_ids = aws_subnet.aurora[*].id
 }
 
 resource "aws_security_group" "aurora" {
+  count       = local.is_aws ? 1 : 0
   name        = "rag-aurora-sg"
   description = "Aurora sg for rag (Data API - no Lambda VPC attachment needed)"
-  vpc_id      = data.aws_vpc.default.id
+  vpc_id      = data.aws_vpc.default[0].id
 }
 
 # pgvector is installed via CREATE EXTENSION, not shared_preload_libraries.
 # No custom parameter group needed.
 
 resource "random_password" "aurora" {
+  count   = local.is_aws ? 1 : 0
   length  = 32
   special = false
 }
 
 resource "aws_rds_cluster" "aurora" {
+  count                  = local.is_aws ? 1 : 0
   cluster_identifier     = "rag-aurora"
   engine                 = "aurora-postgresql"
   engine_mode            = "provisioned"
   engine_version         = "16.6"
   database_name          = var.aurora_database_name
   master_username        = "ragadmin"
-  master_password        = random_password.aurora.result
-  db_subnet_group_name   = aws_db_subnet_group.aurora.name
-  vpc_security_group_ids = [aws_security_group.aurora.id]
+  master_password        = random_password.aurora[0].result
+  db_subnet_group_name   = aws_db_subnet_group.aurora[0].name
+  vpc_security_group_ids = [aws_security_group.aurora[0].id]
   enable_http_endpoint   = true
   skip_final_snapshot    = true
 
@@ -165,24 +176,27 @@ resource "aws_rds_cluster" "aurora" {
 }
 
 resource "aws_rds_cluster_instance" "aurora_writer" {
-  cluster_identifier = aws_rds_cluster.aurora.id
+  count              = local.is_aws ? 1 : 0
+  cluster_identifier = aws_rds_cluster.aurora[0].id
   instance_class     = "db.serverless"
-  engine             = aws_rds_cluster.aurora.engine
-  engine_version     = aws_rds_cluster.aurora.engine_version
+  engine             = aws_rds_cluster.aurora[0].engine
+  engine_version     = aws_rds_cluster.aurora[0].engine_version
 }
 
 resource "aws_secretsmanager_secret" "aurora" {
+  count                   = local.is_aws ? 1 : 0
   name                    = "rag-aurora-credentials"
   recovery_window_in_days = 0
 }
 
 resource "aws_secretsmanager_secret_version" "aurora" {
-  secret_id = aws_secretsmanager_secret.aurora.id
+  count     = local.is_aws ? 1 : 0
+  secret_id = aws_secretsmanager_secret.aurora[0].id
   secret_string = jsonencode({
-    username = aws_rds_cluster.aurora.master_username
-    password = random_password.aurora.result
-    host     = aws_rds_cluster.aurora.endpoint
-    port     = aws_rds_cluster.aurora.port
+    username = aws_rds_cluster.aurora[0].master_username
+    password = random_password.aurora[0].result
+    host     = aws_rds_cluster.aurora[0].endpoint
+    port     = aws_rds_cluster.aurora[0].port
     dbname   = var.aurora_database_name
   })
 }
@@ -252,12 +266,12 @@ resource "aws_iam_role_policy" "ingest_lambda" {
           "rds-data:CommitTransaction",
           "rds-data:RollbackTransaction",
         ]
-        Resource = aws_rds_cluster.aurora.arn
+        Resource = local.is_aws ? [aws_rds_cluster.aurora[0].arn] : ["arn:aws:rds:*:*:cluster:placeholder"]
       },
       {
         Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]
-        Resource = aws_secretsmanager_secret.aurora.arn
+        Resource = local.is_aws ? [aws_secretsmanager_secret.aurora[0].arn] : ["arn:aws:secretsmanager:*:*:secret:placeholder"]
       },
     ]
   })
@@ -282,8 +296,8 @@ resource "aws_lambda_function" "ingest" {
       CHUNK_SIZE                  = tostring(var.chunk_size)
       CHUNK_OVERLAP               = tostring(var.chunk_overlap)
       BEDROCK_EMBEDDING_MODEL_ID  = var.bedrock_embedding_model_id
-      AURORA_CLUSTER_ARN          = aws_rds_cluster.aurora.arn
-      AURORA_SECRET_ARN           = aws_secretsmanager_secret.aurora.arn
+      AURORA_CLUSTER_ARN          = local.is_aws ? aws_rds_cluster.aurora[0].arn : ""
+      AURORA_SECRET_ARN           = local.is_aws ? aws_secretsmanager_secret.aurora[0].arn : ""
       AURORA_DATABASE             = var.aurora_database_name
     }
   }

@@ -19,18 +19,18 @@ output "ingest_lambda_arn" {
 }
 
 output "aurora_cluster_arn" {
-  description = "ARN of the Aurora Serverless v2 cluster"
-  value       = aws_rds_cluster.aurora.arn
+  description = "ARN of the Aurora Serverless v2 cluster (empty on LocalStack)"
+  value       = local.is_aws ? aws_rds_cluster.aurora[0].arn : ""
 }
 
 output "aurora_secret_arn" {
-  description = "ARN of the Secrets Manager secret holding Aurora credentials"
-  value       = aws_secretsmanager_secret.aurora.arn
+  description = "ARN of the Secrets Manager secret holding Aurora credentials (empty on LocalStack)"
+  value       = local.is_aws ? aws_secretsmanager_secret.aurora[0].arn : ""
 }
 
 output "aurora_cluster_endpoint" {
-  description = "Writer endpoint of the Aurora cluster"
-  value       = aws_rds_cluster.aurora.endpoint
+  description = "Writer endpoint of the Aurora cluster (empty on LocalStack)"
+  value       = local.is_aws ? aws_rds_cluster.aurora[0].endpoint : ""
 }
 
 output "aurora_database" {
