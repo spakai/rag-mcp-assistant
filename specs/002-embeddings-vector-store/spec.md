@@ -64,6 +64,27 @@ Each criterion must be verifiable by an automated test.
 - Authentication and multi-tenancy (spec 006).
 - Moving Aurora into a VPC (spec 008) — the Data API removes that need for now.
 
+## Lessons learned
+
+- **Aurora Data API rejects multi-statement SQL.** Each `execute_statement` call
+  must contain exactly one SQL statement. Two DELETEs concatenated with `;` in one
+  call caused a `ValidationException`. Split them into separate calls.
+- **`TIMESTAMPTZ` columns reject plain `stringValue` parameters.** The Data API
+  does not auto-cast text to timestamp. Use `:param::timestamptz` in the SQL or
+  pass a `typeHint`. We used the cast approach.
+- **`dynamodb:UpdateItem` must be explicit in the IAM policy.** It is not covered
+  by `PutItem` or `BatchWriteItem`. The Lambda failed with `AccessDeniedException`
+  when calling `update_document_status`.
+- **Terraform `count = 0` on data sources does not suppress evaluation on
+  LocalStack.** EC2 data sources (`aws_vpc`, `aws_availability_zones`) must be
+  gated behind a `local.is_aws` condition, and the CI `tflocal apply` must pass
+  `-var "localstack_endpoint=..."` so the condition evaluates correctly.
+- **`pgvector` is not a valid `shared_preload_libraries` value for Aurora
+  PostgreSQL 16.** The extension is activated with `CREATE EXTENSION IF NOT EXISTS
+  vector` via the Data API; no custom parameter group is needed.
+- **Aurora instance deletion takes 5–10 minutes** regardless of `min_capacity`.
+  Factor this into teardown time estimates.
+
 ## Constraints
 
 - Follow all guardrails in `AGENTS.md`. In particular: no secrets committed,
