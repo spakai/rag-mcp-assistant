@@ -39,6 +39,6 @@ output "aurora_database" {
 }
 
 output "api_endpoint" {
-  description = "Invoke URL for POST /ask"
-  value       = "${aws_apigatewayv2_api.query.api_endpoint}/ask"
+  description = "Invoke URL for POST /ask (empty on LocalStack)"
+  value       = local.is_aws ? "${aws_apigatewayv2_api.query[0].api_endpoint}/ask" : ""
 }

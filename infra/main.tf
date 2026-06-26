@@ -380,33 +380,38 @@ resource "aws_iam_role_policy" "query_lambda" {
 # ── API Gateway HTTP API v2 ───────────────────────────────────────────────────
 
 resource "aws_apigatewayv2_api" "query" {
+  count         = local.is_aws ? 1 : 0
   name          = "rag-query-api"
   protocol_type = "HTTP"
 }
 
 resource "aws_apigatewayv2_stage" "query" {
-  api_id      = aws_apigatewayv2_api.query.id
+  count       = local.is_aws ? 1 : 0
+  api_id      = aws_apigatewayv2_api.query[0].id
   name        = "$default"
   auto_deploy = true
 }
 
 resource "aws_apigatewayv2_integration" "query" {
-  api_id                 = aws_apigatewayv2_api.query.id
+  count                  = local.is_aws ? 1 : 0
+  api_id                 = aws_apigatewayv2_api.query[0].id
   integration_type       = "AWS_PROXY"
   integration_uri        = aws_lambda_function.query.invoke_arn
   payload_format_version = "2.0"
 }
 
 resource "aws_apigatewayv2_route" "ask" {
-  api_id    = aws_apigatewayv2_api.query.id
+  count     = local.is_aws ? 1 : 0
+  api_id    = aws_apigatewayv2_api.query[0].id
   route_key = "POST /ask"
-  target    = "integrations/${aws_apigatewayv2_integration.query.id}"
+  target    = "integrations/${aws_apigatewayv2_integration.query[0].id}"
 }
 
 resource "aws_lambda_permission" "allow_apigw_query" {
+  count         = local.is_aws ? 1 : 0
   statement_id  = "AllowAPIGWInvoke"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.query.function_name
   principal     = "apigateway.amazonaws.com"
-  source_arn    = "${aws_apigatewayv2_api.query.execution_arn}/*/*"
+  source_arn    = "${aws_apigatewayv2_api.query[0].execution_arn}/*/*"
 }
