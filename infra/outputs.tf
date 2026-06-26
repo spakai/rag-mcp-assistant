@@ -37,3 +37,8 @@ output "aurora_database" {
   description = "Name of the PostgreSQL database"
   value       = var.aurora_database_name
 }
+
+output "api_endpoint" {
+  description = "Invoke URL for POST /ask"
+  value       = "${aws_apigatewayv2_api.query.api_endpoint}/ask"
+}

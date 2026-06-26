@@ -5,6 +5,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 BEDROCK_MODEL="${BEDROCK_EMBEDDING_MODEL_ID:-amazon.titan-embed-text-v2:0}"
+GENERATION_MODEL="${BEDROCK_GENERATION_MODEL_ID:-amazon.nova-micro-v1:0}"
 
 bash "$REPO_ROOT/scripts/build.sh"
 
@@ -12,7 +13,8 @@ echo "==> Deploying to AWS"
 cd "$REPO_ROOT/infra"
 terraform init -upgrade -input=false > /dev/null
 terraform apply -auto-approve -input=false \
-  -var "bedrock_embedding_model_id=$BEDROCK_MODEL"
+  -var "bedrock_embedding_model_id=$BEDROCK_MODEL" \
+  -var "bedrock_generation_model_id=$GENERATION_MODEL"
 
 echo "==> Terraform outputs:"
 terraform output

@@ -58,6 +58,18 @@ variable "bedrock_embedding_model_id" {
   default     = ""
 }
 
+variable "bedrock_generation_model_id" {
+  description = "Bedrock model ID for answer generation (empty string disables generation on LocalStack)"
+  type        = string
+  default     = ""
+}
+
+variable "retrieval_top_k" {
+  description = "Number of chunks to retrieve per query"
+  type        = number
+  default     = 5
+}
+
 variable "localstack_endpoint" {
   description = "LocalStack endpoint URL (empty string for real AWS)"
   type        = string
