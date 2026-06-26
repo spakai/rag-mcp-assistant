@@ -1,5 +1,7 @@
 pytest
+pytest-asyncio
 ruff
 boto3
 moto[s3,dynamodb]
 pypdf
+mcp
