@@ -4,6 +4,24 @@ import time
 from botocore.exceptions import ClientError
 
 
+def retrieve_chunks(
+    rdsdata_client,
+    bedrock_client,
+    cluster_arn: str,
+    secret_arn: str,
+    database: str,
+    query: str,
+    embedding_model_id: str,
+    top_k: int = 5,
+) -> list[dict]:
+    query_embedding = _embed_question(bedrock_client, query, embedding_model_id)
+    chunks = _search_chunks(rdsdata_client, cluster_arn, secret_arn, database, query_embedding, top_k)
+    return [
+        {"source_key": c["source_key"], "chunk_index": c["chunk_index"], "text": c["text"]}
+        for c in chunks
+    ]
+
+
 def retrieve_and_answer(
     rdsdata_client,
     bedrock_client,

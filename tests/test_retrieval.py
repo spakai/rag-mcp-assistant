@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 import pytest
 from botocore.exceptions import ClientError
 
-from src.query.retrieval import retrieve_and_answer
+from src.query.retrieval import retrieve_and_answer, retrieve_chunks
 
 
 def _make_bedrock_embed_response(embedding):
@@ -172,3 +172,46 @@ def test_sources_shape():
     assert set(source.keys()) == {"source_key", "chunk_index", "text"}
     assert source["chunk_index"] == 2
     assert source["source_key"] == "documents/b.txt"
+
+
+# ── retrieve_chunks ───────────────────────────────────────────────────────────
+
+def test_retrieve_chunks_returns_list_of_dicts():
+    bedrock = MagicMock()
+    bedrock.invoke_model.return_value = _make_bedrock_embed_response([0.1] * 1024)
+
+    rdsdata = MagicMock()
+    rdsdata.execute_statement.return_value = _make_rds_response([
+        (0, "text A", "documents/a.txt"),
+        (1, "text B", "documents/a.txt"),
+    ])
+
+    result = retrieve_chunks(
+        rdsdata, bedrock,
+        "arn:cluster", "arn:secret", "rag",
+        "what is A?", "embed-model",
+        top_k=5,
+    )
+
+    assert len(result) == 2
+    assert result[0] == {"source_key": "documents/a.txt", "chunk_index": 0, "text": "text A"}
+    assert result[1] == {"source_key": "documents/a.txt", "chunk_index": 1, "text": "text B"}
+    # No generation call
+    bedrock.converse.assert_not_called()
+
+
+def test_retrieve_chunks_empty_results():
+    bedrock = MagicMock()
+    bedrock.invoke_model.return_value = _make_bedrock_embed_response([0.0] * 1024)
+
+    rdsdata = MagicMock()
+    rdsdata.execute_statement.return_value = _make_rds_response([])
+
+    result = retrieve_chunks(
+        rdsdata, bedrock,
+        "arn:cluster", "arn:secret", "rag",
+        "unknown", "embed-model",
+    )
+
+    assert result == []
+    bedrock.converse.assert_not_called()
