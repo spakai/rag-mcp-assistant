@@ -58,7 +58,7 @@ jobs:
           fi
           bash scripts/build.sh
           tflocal -chdir=infra init -input=false
-          tflocal -chdir=infra apply -auto-approve -input=false
+          tflocal -chdir=infra apply -auto-approve -input=false -var "localstack_endpoint=http://127.0.0.1:4566"
           pytest tests/integration -q || [ $? -eq 5 ]
         # Endpoint for the integration tests (IPv4 to dodge ::1 surprises)
         # is read from AWS_ENDPOINT_URL by the test code.
