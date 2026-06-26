@@ -4,7 +4,7 @@ Real-AWS integration tests for spec 004 — MCP server.
 Skipped unless RUN_AWS_INTEGRATION=1 is set.
 
 Prerequisites:
-    bash scripts/deploy-aws.sh   # deploys infra (includes rag-mcp Lambda + Function URL)
+    bash scripts/deploy-aws.sh   # deploys infra (includes rag-mcp Lambda + API Gateway)
     # At least one document must be ingested so search/ask return real results.
 """
 import json
@@ -26,10 +26,9 @@ def _tf_outputs() -> dict:
 @pytest.fixture(scope="module")
 def mcp_url():
     outputs = _tf_outputs()
-    url = outputs.get("mcp_function_url", {}).get("value", "")
-    assert url, "mcp_function_url Terraform output is empty — has deploy-aws.sh been run?"
-    # The MCP streamable HTTP endpoint is at /mcp under the Function URL base
-    return url.rstrip("/") + "/mcp"
+    url = outputs.get("mcp_endpoint", {}).get("value", "")
+    assert url, "mcp_endpoint Terraform output is empty — has deploy-aws.sh been run?"
+    return url
 
 
 @pytest.mark.skipif(not RUN_AWS, reason=SKIP_REASON)

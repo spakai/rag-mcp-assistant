@@ -43,7 +43,7 @@ output "api_endpoint" {
   value       = local.is_aws ? "${aws_apigatewayv2_api.query[0].api_endpoint}/ask" : ""
 }
 
-output "mcp_function_url" {
-  description = "Lambda Function URL for the MCP server — append /mcp for the MCP endpoint (empty on LocalStack)"
-  value       = local.is_aws ? aws_lambda_function_url.mcp[0].function_url : ""
+output "mcp_endpoint" {
+  description = "MCP server endpoint — POST to this URL (empty on LocalStack)"
+  value       = local.is_aws ? "${aws_apigatewayv2_api.mcp[0].api_endpoint}/mcp" : ""
 }
