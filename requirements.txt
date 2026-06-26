@@ -1,5 +1,4 @@
 boto3
 pypdf
 mcp
-mangum
 pytest-asyncio

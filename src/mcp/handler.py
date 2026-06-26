@@ -1,8 +1,9 @@
+import asyncio
+import base64
 import logging
 import os
 
 import boto3
-from mangum import Mangum
 from mcp.server.fastmcp import FastMCP
 
 from src.query.retrieval import retrieve_and_answer, retrieve_chunks
@@ -68,4 +69,80 @@ def ask_question(question: str) -> dict:
     return result
 
 
-handler = Mangum(mcp.streamable_http_app())
+# ── Lambda ASGI adapter for Function URL (payload format 2.0) ─────────────────
+# Mangum's infer logic does not reliably match Lambda Function URL events in all
+# account/region configurations. This thin adapter reads the v2 event directly.
+
+_app = None
+
+
+def _get_app():
+    global _app
+    if _app is None:
+        _app = mcp.streamable_http_app()
+    return _app
+
+
+async def _handle(event: dict) -> dict:
+    app = _get_app()
+
+    request_context = event.get("requestContext", {})
+    http_info = request_context.get("http", {})
+
+    raw_headers = event.get("headers") or {}
+    asgi_headers = [(k.lower().encode(), v.encode()) for k, v in raw_headers.items()]
+
+    body_raw = event.get("body") or b""
+    if event.get("isBase64Encoded"):
+        body = base64.b64decode(body_raw)
+    elif isinstance(body_raw, str):
+        body = body_raw.encode()
+    else:
+        body = body_raw
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "method": http_info.get("method", "POST"),
+        "path": http_info.get("path", "/"),
+        "query_string": event.get("rawQueryString", "").encode(),
+        "root_path": "",
+        "scheme": "https",
+        "server": (request_context.get("domainName", "localhost"), 443),
+        "client": (http_info.get("sourceIp", "127.0.0.1"), 0),
+        "headers": asgi_headers,
+    }
+
+    status = 500
+    resp_headers: dict[str, str] = {}
+    chunks: list[bytes] = []
+
+    async def receive():
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    async def send(message: dict) -> None:
+        nonlocal status
+        if message["type"] == "http.response.start":
+            status = message["status"]
+            for k, v in message.get("headers", []):
+                resp_headers[k.decode()] = v.decode()
+        elif message["type"] == "http.response.body":
+            chunks.append(message.get("body", b""))
+
+    await app(scope, receive, send)
+
+    return {
+        "statusCode": status,
+        "headers": resp_headers,
+        "body": b"".join(chunks).decode("utf-8", errors="replace"),
+        "isBase64Encoded": False,
+    }
+
+
+def handler(event, context):
+    logger.debug(
+        "Lambda Function URL event: method=%s path=%s",
+        event.get("requestContext", {}).get("http", {}).get("method"),
+        event.get("requestContext", {}).get("http", {}).get("path"),
+    )
+    return asyncio.run(_handle(event))
