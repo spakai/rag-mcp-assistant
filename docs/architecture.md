@@ -21,17 +21,24 @@ humans/apps, and an **MCP server** so any agent can use it as a tool.
 ## Level 1 — System Context
 
 ```mermaid
-C4Context
-    title System Context — RAG knowledge assistant
+---
+config:
+  layout: elk
+---
+flowchart TB
+    user["Knowledge worker<br><i>Uploads documents, asks questions</i>"]
+    agent["External AI agent<br><i>Uses the assistant as an MCP tool</i>"]
+    rag["RAG Knowledge Assistant<br><i>Ingests docs; answers with citations</i>"]
+    bedrock["Amazon Bedrock<br><i>Embeddings + text generation</i>"]
 
-    Person(user, "Knowledge worker", "Uploads documents, asks questions")
-    System_Ext(agent, "External AI agent", "Uses the assistant as an MCP tool")
-    System(rag, "RAG Knowledge Assistant", "Ingests documents; answers questions with citations")
-    System_Ext(bedrock, "Amazon Bedrock", "Embeddings + text generation")
+    user -->|"Uploads docs, asks questions<br>HTTPS / S3"| rag
+    agent -->|"Queries via tools · MCP"| rag
+    rag -->|"Embeds text, generates answers · HTTPS"| bedrock
 
-    Rel(user, rag, "Uploads docs, asks questions", "HTTPS / S3")
-    Rel(agent, rag, "Queries via tools", "MCP")
-    Rel(rag, bedrock, "Embeds text, generates answers", "HTTPS")
+    classDef internal fill:#1168bd,stroke:#0b4884,color:#fff
+    classDef external fill:#8a8a8a,stroke:#5e5e5e,color:#fff
+    class rag internal
+    class user,agent,bedrock external
 ```
 
 ## Level 2 — Container
