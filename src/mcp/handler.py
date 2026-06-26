@@ -149,9 +149,14 @@ async def _asgi_call(session_manager: StreamableHTTPSessionManager, event: dict)
 
 async def _dispatch(event: dict) -> dict:
     """Create a fresh session manager, serve one request, tear it down."""
+    # json_response=True: return responses as a single JSON body instead of SSE.
+    # SSE streaming requires a persistent connection; Lambda BUFFERED mode must
+    # return a complete response, so SSE would deadlock waiting for the stream
+    # to be consumed.
     session_manager = StreamableHTTPSessionManager(
         app=mcp._mcp_server,
         stateless=True,
+        json_response=True,
         security_settings=_NO_REBIND,
     )
     async with session_manager.run():
