@@ -91,14 +91,21 @@ async def _http_call(app, event: dict) -> dict:
     http_info = request_context.get("http", {})
 
     raw_headers = event.get("headers") or {}
-    # Drop the 'host' header — Starlette's TrustedHostMiddleware only allows localhost
-    # by default and would return 421 for the API Gateway domain. The MCP server doesn't
-    # use the host for routing, so dropping it is safe.
-    asgi_headers = [
-        (k.lower().encode(), v.encode())
-        for k, v in raw_headers.items()
-        if k.lower() != "host"
-    ]
+    # Rewrite the 'host' header to 'localhost': the MCP StreamableHTTPSessionManager
+    # validates the host and returns 421 for any value not in its allowed list
+    # (defaults to localhost/127.0.0.1). The API Gateway domain is not in that list
+    # and omitting the header also triggers 421.
+    asgi_headers = []
+    has_host = False
+    for k, v in raw_headers.items():
+        kl = k.lower()
+        if kl == "host":
+            asgi_headers.append((b"host", b"localhost"))
+            has_host = True
+        else:
+            asgi_headers.append((kl.encode(), v.encode()))
+    if not has_host:
+        asgi_headers.append((b"host", b"localhost"))
 
     body_raw = event.get("body") or b""
     if event.get("isBase64Encoded"):
