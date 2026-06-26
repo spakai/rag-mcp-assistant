@@ -3,15 +3,18 @@ import base64
 import logging
 import os
 
-import anyio
 import boto3
 from mcp.server.fastmcp import FastMCP
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.server.transport_security import TransportSecuritySettings
 
 from src.query.retrieval import retrieve_and_answer, retrieve_chunks
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+# Tool registration only — session manager is created fresh per invocation
+# because StreamableHTTPSessionManager.run() is one-shot per instance.
 mcp = FastMCP("rag-assistant")
 
 
@@ -72,40 +75,30 @@ def ask_question(question: str) -> dict:
 
 # ── Lambda ASGI adapter ───────────────────────────────────────────────────────
 #
-# FastMCP's StreamableHTTPSessionManager requires an ASGI lifespan startup to
-# initialise its anyio task group before it can handle HTTP requests.  In a
-# long-running server this happens once at process start; in Lambda every
-# invocation is ephemeral, so we run lifespan + the HTTP call concurrently
-# inside one asyncio.run() call and tear the session down afterwards.
+# FastMCP's StreamableHTTPSessionManager.run() is one-shot per instance: it
+# initialises an anyio task group tied to the current event loop, and refuses
+# to run again after shutdown.  asyncio.run() creates a new event loop per
+# Lambda invocation, so we cannot reuse a cached session manager across warm
+# invocations.  Instead we keep the FastMCP object (which holds tool
+# registrations via _mcp_server) and create a fresh StreamableHTTPSessionManager
+# on every call, wrapping the same underlying server.
 #
-# We create a fresh ASGI app per invocation rather than caching it: the
-# StreamableHTTPSessionManager stores the anyio task group as instance state,
-# and that group is tied to the event loop from its creation.  asyncio.run()
-# creates a new event loop each time, so a cached app's task group would be
-# stale on warm invocations and cause an ExceptionGroup on the second call.
+# stateless=True creates a new transport per request (no mcp-session-id needed),
+# which matches Lambda's request-per-invocation model.
+#
+# DNS rebinding protection is disabled: it only makes sense for local-network
+# servers, not for Lambda behind API Gateway.
+
+_NO_REBIND = TransportSecuritySettings(enable_dns_rebinding_protection=False)
 
 
-async def _http_call(app, event: dict) -> dict:
-    """Build an ASGI HTTP scope from an API Gateway v2 event and call the app."""
+async def _asgi_call(session_manager: StreamableHTTPSessionManager, event: dict) -> dict:
+    """Translate an API Gateway v2 event into ASGI and call the session manager."""
     request_context = event.get("requestContext", {})
     http_info = request_context.get("http", {})
 
     raw_headers = event.get("headers") or {}
-    # Rewrite the 'host' header to 'localhost': the MCP StreamableHTTPSessionManager
-    # validates the host and returns 421 for any value not in its allowed list
-    # (defaults to localhost/127.0.0.1). The API Gateway domain is not in that list
-    # and omitting the header also triggers 421.
-    asgi_headers = []
-    has_host = False
-    for k, v in raw_headers.items():
-        kl = k.lower()
-        if kl == "host":
-            asgi_headers.append((b"host", b"localhost"))
-            has_host = True
-        else:
-            asgi_headers.append((kl.encode(), v.encode()))
-    if not has_host:
-        asgi_headers.append((b"host", b"localhost"))
+    asgi_headers = [(k.lower().encode(), v.encode()) for k, v in raw_headers.items()]
 
     body_raw = event.get("body") or b""
     if event.get("isBase64Encoded"):
@@ -144,7 +137,7 @@ async def _http_call(app, event: dict) -> dict:
         elif message["type"] == "http.response.body":
             chunks.append(message.get("body", b""))
 
-    await app(scope, receive, send)
+    await session_manager.handle_request(scope, receive, send)
 
     return {
         "statusCode": status,
@@ -155,42 +148,14 @@ async def _http_call(app, event: dict) -> dict:
 
 
 async def _dispatch(event: dict) -> dict:
-    """Run ASGI lifespan startup, handle one HTTP request, then shut down."""
-    app = mcp.streamable_http_app()
-
-    startup_complete = anyio.Event()
-    shutdown_trigger = anyio.Event()
-    result: list[dict] = []
-
-    async def lifespan_runner() -> None:
-        sent_startup = False
-
-        async def receive() -> dict:
-            nonlocal sent_startup
-            if not sent_startup:
-                sent_startup = True
-                return {"type": "lifespan.startup"}
-            await shutdown_trigger.wait()
-            return {"type": "lifespan.shutdown"}
-
-        async def send(message: dict) -> None:
-            if message["type"] in ("lifespan.startup.complete", "lifespan.startup.failed"):
-                startup_complete.set()
-
-        await app({"type": "lifespan", "asgi": {"version": "3.0"}, "state": {}}, receive, send)
-
-    async def http_runner() -> None:
-        await startup_complete.wait()
-        try:
-            result.append(await _http_call(app, event))
-        finally:
-            shutdown_trigger.set()
-
-    async with anyio.create_task_group() as tg:
-        tg.start_soon(lifespan_runner)
-        tg.start_soon(http_runner)
-
-    return result[0] if result else {"statusCode": 500, "body": "no response", "headers": {}, "isBase64Encoded": False}
+    """Create a fresh session manager, serve one request, tear it down."""
+    session_manager = StreamableHTTPSessionManager(
+        app=mcp._mcp_server,
+        stateless=True,
+        security_settings=_NO_REBIND,
+    )
+    async with session_manager.run():
+        return await _asgi_call(session_manager, event)
 
 
 def handler(event, context):
