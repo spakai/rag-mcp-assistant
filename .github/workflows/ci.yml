@@ -58,7 +58,33 @@ jobs:
           fi
           bash scripts/build.sh
           tflocal -chdir=infra init -input=false
-          tflocal -chdir=infra apply -auto-approve -input=false
+          tflocal -chdir=infra apply -auto-approve -input=false -var "localstack_endpoint=http://127.0.0.1:4566"
           pytest tests/integration -q || [ $? -eq 5 ]
         # Endpoint for the integration tests (IPv4 to dodge ::1 surprises)
         # is read from AWS_ENDPOINT_URL by the test code.
+
+  integration-aws:
+    runs-on: ubuntu-latest
+    # Only triggered manually — real AWS costs money.
+    if: github.event_name == 'workflow_dispatch'
+    environment: aws-integration
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+      - run: pip install -r requirements-dev.txt
+      - name: Deploy to AWS and initialise Aurora schema
+        env:
+          BEDROCK_EMBEDDING_MODEL_ID: amazon.titan-embed-text-v2:0
+        run: bash scripts/deploy-aws.sh
+      - name: Run real-AWS integration tests
+        run: RUN_AWS_INTEGRATION=1 pytest tests/integration/test_embeddings.py -v

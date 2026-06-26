@@ -5,8 +5,10 @@ import urllib.parse
 import boto3
 
 from .chunker import chunk_text
+from .embedder import embed_chunks
 from .extractor import extract_text
-from .store import replace_document
+from .store import replace_document, update_document_status
+from .vector_store import replace_document_vectors
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -45,6 +47,31 @@ def _process(s3, dynamo, bucket, key, documents_table, chunks_table, chunk_size,
     chunks = list(chunk_text(text, chunk_size, chunk_overlap))
     document_id = replace_document(dynamo, documents_table, chunks_table, key, chunks)
     logger.info("Stored %d chunks for document_id=%s source_key=%s", len(chunks), document_id, key)
+
+    model_id = os.environ.get("BEDROCK_EMBEDDING_MODEL_ID")
+    if not model_id:
+        return
+
+    bedrock = boto3.client("bedrock-runtime")
+    rdsdata = boto3.client("rds-data")
+
+    embed_chunks(bedrock, chunks, model_id)
+    replace_document_vectors(
+        rdsdata,
+        os.environ["AURORA_CLUSTER_ARN"],
+        os.environ["AURORA_SECRET_ARN"],
+        os.environ.get("AURORA_DATABASE", "rag"),
+        key,
+        document_id,
+        chunks,
+    )
+    update_document_status(dynamo, documents_table, document_id, "embedded")
+    logger.info(
+        "Embedded %d chunks for document_id=%s source_key=%s",
+        len(chunks),
+        document_id,
+        key,
+    )
 
 
 def _extension(key: str) -> str:
