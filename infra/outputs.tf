@@ -37,3 +37,8 @@ output "aurora_database" {
   description = "Name of the PostgreSQL database"
   value       = var.aurora_database_name
 }
+
+output "api_endpoint" {
+  description = "Invoke URL for POST /ask (empty on LocalStack)"
+  value       = local.is_aws ? "${aws_apigatewayv2_api.query[0].api_endpoint}/ask" : ""
+}

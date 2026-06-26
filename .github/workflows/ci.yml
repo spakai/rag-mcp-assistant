@@ -85,6 +85,7 @@ jobs:
       - name: Deploy to AWS and initialise Aurora schema
         env:
           BEDROCK_EMBEDDING_MODEL_ID: amazon.titan-embed-text-v2:0
+          BEDROCK_GENERATION_MODEL_ID: amazon.nova-micro-v1:0
         run: bash scripts/deploy-aws.sh
       - name: Run real-AWS integration tests
-        run: RUN_AWS_INTEGRATION=1 pytest tests/integration/test_embeddings.py -v
+        run: RUN_AWS_INTEGRATION=1 pytest tests/integration/ -v
