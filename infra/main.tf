@@ -415,3 +415,115 @@ resource "aws_lambda_permission" "allow_apigw_query" {
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.query[0].execution_arn}/*/*"
 }
+
+# ── MCP Lambda ────────────────────────────────────────────────────────────────
+
+resource "aws_iam_role" "mcp_lambda" {
+  name = "rag-mcp-lambda-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "lambda.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "mcp_lambda" {
+  name = "rag-mcp-lambda-policy"
+  role = aws_iam_role.mcp_lambda.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents",
+        ]
+        Resource = "arn:aws:logs:*:*:*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["bedrock:InvokeModel"]
+        Resource = "arn:aws:bedrock:${var.aws_region}::foundation-model/*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "rds-data:ExecuteStatement",
+        ]
+        Resource = local.is_aws ? [aws_rds_cluster.aurora[0].arn] : ["arn:aws:rds:*:*:cluster:placeholder"]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = local.is_aws ? [aws_secretsmanager_secret.aurora[0].arn] : ["arn:aws:secretsmanager:*:*:secret:placeholder"]
+      },
+    ]
+  })
+}
+
+resource "aws_lambda_function" "mcp" {
+  count            = local.is_aws ? 1 : 0
+  function_name    = "rag-mcp"
+  role             = aws_iam_role.mcp_lambda.arn
+  filename         = "${path.module}/../dist/ingest.zip"
+  source_code_hash = filebase64sha256("${path.module}/../dist/ingest.zip")
+  handler          = "src.mcp.handler.handler"
+  runtime          = "python3.12"
+  memory_size      = var.lambda_memory_mb
+  timeout          = var.lambda_timeout_seconds
+
+  environment {
+    variables = {
+      BEDROCK_EMBEDDING_MODEL_ID  = var.bedrock_embedding_model_id
+      BEDROCK_GENERATION_MODEL_ID = var.bedrock_generation_model_id
+      AURORA_CLUSTER_ARN          = aws_rds_cluster.aurora[0].arn
+      AURORA_SECRET_ARN           = aws_secretsmanager_secret.aurora[0].arn
+      AURORA_DATABASE             = var.aurora_database_name
+      RETRIEVAL_TOP_K             = tostring(var.retrieval_top_k)
+    }
+  }
+}
+
+resource "aws_apigatewayv2_api" "mcp" {
+  count         = local.is_aws ? 1 : 0
+  name          = "rag-mcp-api"
+  protocol_type = "HTTP"
+}
+
+resource "aws_apigatewayv2_stage" "mcp" {
+  count       = local.is_aws ? 1 : 0
+  api_id      = aws_apigatewayv2_api.mcp[0].id
+  name        = "$default"
+  auto_deploy = true
+}
+
+resource "aws_apigatewayv2_integration" "mcp" {
+  count                  = local.is_aws ? 1 : 0
+  api_id                 = aws_apigatewayv2_api.mcp[0].id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = aws_lambda_function.mcp[0].invoke_arn
+  payload_format_version = "2.0"
+}
+
+resource "aws_apigatewayv2_route" "mcp" {
+  count     = local.is_aws ? 1 : 0
+  api_id    = aws_apigatewayv2_api.mcp[0].id
+  route_key = "POST /mcp"
+  target    = "integrations/${aws_apigatewayv2_integration.mcp[0].id}"
+}
+
+resource "aws_lambda_permission" "allow_apigw_mcp" {
+  count         = local.is_aws ? 1 : 0
+  statement_id  = "AllowAPIGWInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.mcp[0].function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.mcp[0].execution_arn}/*/*"
+}

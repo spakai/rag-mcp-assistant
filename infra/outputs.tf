@@ -42,3 +42,8 @@ output "api_endpoint" {
   description = "Invoke URL for POST /ask (empty on LocalStack)"
   value       = local.is_aws ? "${aws_apigatewayv2_api.query[0].api_endpoint}/ask" : ""
 }
+
+output "mcp_endpoint" {
+  description = "MCP server endpoint — POST to this URL (empty on LocalStack)"
+  value       = local.is_aws ? "${aws_apigatewayv2_api.mcp[0].api_endpoint}/mcp" : ""
+}
