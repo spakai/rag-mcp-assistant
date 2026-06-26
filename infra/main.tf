@@ -4,6 +4,10 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.0"
+    }
   }
   required_version = ">= 1.6"
 }
@@ -101,6 +105,88 @@ resource "aws_dynamodb_table" "chunks" {
   }
 }
 
+# ── Aurora Serverless v2 + pgvector ──────────────────────────────────────────
+
+data "aws_vpc" "default" {
+  default = true
+}
+
+data "aws_availability_zones" "available" {
+  state = "available"
+}
+
+# Aurora requires a subnet group spanning at least 2 AZs.
+# Create two dedicated /24 subnets from the tail of the default VPC's CIDR.
+resource "aws_subnet" "aurora" {
+  count             = 2
+  vpc_id            = data.aws_vpc.default.id
+  cidr_block        = cidrsubnet(data.aws_vpc.default.cidr_block, 8, 96 + count.index)
+  availability_zone = data.aws_availability_zones.available.names[count.index]
+
+  tags = { Name = "rag-aurora-${count.index}" }
+}
+
+resource "aws_db_subnet_group" "aurora" {
+  name       = "rag-aurora-subnet-group"
+  subnet_ids = aws_subnet.aurora[*].id
+}
+
+resource "aws_security_group" "aurora" {
+  name        = "rag-aurora-sg"
+  description = "Aurora sg for rag (Data API - no Lambda VPC attachment needed)"
+  vpc_id      = data.aws_vpc.default.id
+}
+
+# pgvector is installed via CREATE EXTENSION, not shared_preload_libraries.
+# No custom parameter group needed.
+
+resource "random_password" "aurora" {
+  length  = 32
+  special = false
+}
+
+resource "aws_rds_cluster" "aurora" {
+  cluster_identifier     = "rag-aurora"
+  engine                 = "aurora-postgresql"
+  engine_mode            = "provisioned"
+  engine_version         = "16.6"
+  database_name          = var.aurora_database_name
+  master_username        = "ragadmin"
+  master_password        = random_password.aurora.result
+  db_subnet_group_name   = aws_db_subnet_group.aurora.name
+  vpc_security_group_ids = [aws_security_group.aurora.id]
+  enable_http_endpoint   = true
+  skip_final_snapshot    = true
+
+  serverlessv2_scaling_configuration {
+    min_capacity = 0
+    max_capacity = var.aurora_max_capacity
+  }
+}
+
+resource "aws_rds_cluster_instance" "aurora_writer" {
+  cluster_identifier = aws_rds_cluster.aurora.id
+  instance_class     = "db.serverless"
+  engine             = aws_rds_cluster.aurora.engine
+  engine_version     = aws_rds_cluster.aurora.engine_version
+}
+
+resource "aws_secretsmanager_secret" "aurora" {
+  name                    = "rag-aurora-credentials"
+  recovery_window_in_days = 0
+}
+
+resource "aws_secretsmanager_secret_version" "aurora" {
+  secret_id = aws_secretsmanager_secret.aurora.id
+  secret_string = jsonencode({
+    username = aws_rds_cluster.aurora.master_username
+    password = random_password.aurora.result
+    host     = aws_rds_cluster.aurora.endpoint
+    port     = aws_rds_cluster.aurora.port
+    dbname   = var.aurora_database_name
+  })
+}
+
 # ── IAM ──────────────────────────────────────────────────────────────────────
 
 resource "aws_iam_role" "ingest_lambda" {
@@ -133,6 +219,7 @@ resource "aws_iam_role_policy" "ingest_lambda" {
         Action = [
           "dynamodb:PutItem",
           "dynamodb:GetItem",
+          "dynamodb:UpdateItem",
           "dynamodb:DeleteItem",
           "dynamodb:Query",
           "dynamodb:BatchWriteItem",
@@ -152,6 +239,26 @@ resource "aws_iam_role_policy" "ingest_lambda" {
         ]
         Resource = "arn:aws:logs:*:*:*"
       },
+      {
+        Effect   = "Allow"
+        Action   = ["bedrock:InvokeModel"]
+        Resource = "arn:aws:bedrock:${var.aws_region}::foundation-model/*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "rds-data:ExecuteStatement",
+          "rds-data:BeginTransaction",
+          "rds-data:CommitTransaction",
+          "rds-data:RollbackTransaction",
+        ]
+        Resource = aws_rds_cluster.aurora.arn
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = aws_secretsmanager_secret.aurora.arn
+      },
     ]
   })
 }
@@ -170,10 +277,14 @@ resource "aws_lambda_function" "ingest" {
 
   environment {
     variables = {
-      DOCUMENTS_TABLE = var.documents_table_name
-      CHUNKS_TABLE    = var.chunks_table_name
-      CHUNK_SIZE      = tostring(var.chunk_size)
-      CHUNK_OVERLAP   = tostring(var.chunk_overlap)
+      DOCUMENTS_TABLE             = var.documents_table_name
+      CHUNKS_TABLE                = var.chunks_table_name
+      CHUNK_SIZE                  = tostring(var.chunk_size)
+      CHUNK_OVERLAP               = tostring(var.chunk_overlap)
+      BEDROCK_EMBEDDING_MODEL_ID  = var.bedrock_embedding_model_id
+      AURORA_CLUSTER_ARN          = aws_rds_cluster.aurora.arn
+      AURORA_SECRET_ARN           = aws_secretsmanager_secret.aurora.arn
+      AURORA_DATABASE             = var.aurora_database_name
     }
   }
 }

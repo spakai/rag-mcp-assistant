@@ -17,3 +17,23 @@ output "ingest_lambda_arn" {
   description = "ARN of the ingestion Lambda"
   value       = aws_lambda_function.ingest.arn
 }
+
+output "aurora_cluster_arn" {
+  description = "ARN of the Aurora Serverless v2 cluster"
+  value       = aws_rds_cluster.aurora.arn
+}
+
+output "aurora_secret_arn" {
+  description = "ARN of the Secrets Manager secret holding Aurora credentials"
+  value       = aws_secretsmanager_secret.aurora.arn
+}
+
+output "aurora_cluster_endpoint" {
+  description = "Writer endpoint of the Aurora cluster"
+  value       = aws_rds_cluster.aurora.endpoint
+}
+
+output "aurora_database" {
+  description = "Name of the PostgreSQL database"
+  value       = var.aurora_database_name
+}

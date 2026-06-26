@@ -2,7 +2,7 @@ import boto3
 import pytest
 from moto import mock_aws
 
-from src.ingestion.store import replace_document
+from src.ingestion.store import replace_document, update_document_status
 
 DOCUMENTS_TABLE = "documents"
 CHUNKS_TABLE = "chunks"
@@ -92,6 +92,25 @@ def test_different_source_keys_coexist(dynamo):
 
     assert dynamo.scan(TableName=DOCUMENTS_TABLE)["Count"] == 2
     assert dynamo.scan(TableName=CHUNKS_TABLE)["Count"] == 6
+
+
+def test_update_document_status(dynamo):
+    chunks = _make_chunks(2)
+    document_id = replace_document(
+        dynamo,
+        DOCUMENTS_TABLE,
+        CHUNKS_TABLE,
+        "documents/a.txt",
+        chunks,
+    )
+
+    update_document_status(dynamo, DOCUMENTS_TABLE, document_id, "embedded")
+
+    resp = dynamo.get_item(
+        TableName=DOCUMENTS_TABLE,
+        Key={"document_id": {"S": document_id}},
+    )
+    assert resp["Item"]["status"]["S"] == "embedded"
 
 
 def test_no_text_document_status(dynamo):

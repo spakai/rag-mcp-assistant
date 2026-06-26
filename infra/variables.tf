@@ -37,7 +37,25 @@ variable "lambda_memory_mb" {
 variable "lambda_timeout_seconds" {
   description = "Ingestion Lambda timeout (seconds)"
   type        = number
-  default     = 60
+  default     = 120
+}
+
+variable "aurora_database_name" {
+  description = "Name of the PostgreSQL database inside Aurora"
+  type        = string
+  default     = "rag"
+}
+
+variable "aurora_max_capacity" {
+  description = "Maximum Aurora Serverless v2 capacity units"
+  type        = number
+  default     = 1
+}
+
+variable "bedrock_embedding_model_id" {
+  description = "Bedrock model ID for embeddings (empty string disables embedding on LocalStack)"
+  type        = string
+  default     = ""
 }
 
 variable "localstack_endpoint" {

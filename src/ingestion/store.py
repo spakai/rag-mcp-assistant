@@ -41,6 +41,21 @@ def replace_document(
     return document_id
 
 
+def update_document_status(
+    dynamo_client,
+    documents_table: str,
+    document_id: str,
+    status: str,
+) -> None:
+    dynamo_client.update_item(
+        TableName=documents_table,
+        Key={"document_id": {"S": document_id}},
+        UpdateExpression="SET #status = :status",
+        ExpressionAttributeNames={"#status": "status"},
+        ExpressionAttributeValues={":status": {"S": status}},
+    )
+
+
 def _delete_existing(dynamo_client, documents_table: str, chunks_table: str, source_key: str) -> None:
     resp = dynamo_client.query(
         TableName=documents_table,
