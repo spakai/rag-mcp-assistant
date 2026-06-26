@@ -3,6 +3,7 @@ import base64
 import logging
 import os
 
+import anyio
 import boto3
 from mcp.server.fastmcp import FastMCP
 
@@ -69,28 +70,35 @@ def ask_question(question: str) -> dict:
     return result
 
 
-# ── Lambda ASGI adapter for Function URL (payload format 2.0) ─────────────────
-# Mangum's infer logic does not reliably match Lambda Function URL events in all
-# account/region configurations. This thin adapter reads the v2 event directly.
+# ── Lambda ASGI adapter ───────────────────────────────────────────────────────
+#
+# FastMCP's StreamableHTTPSessionManager requires an ASGI lifespan startup to
+# initialise its anyio task group before it can handle HTTP requests.  In a
+# long-running server this happens once at process start; in Lambda every
+# invocation is ephemeral, so we run lifespan + the HTTP call concurrently
+# inside one asyncio.run() call and tear the session down afterwards.
+#
+# We create a fresh ASGI app per invocation rather than caching it: the
+# StreamableHTTPSessionManager stores the anyio task group as instance state,
+# and that group is tied to the event loop from its creation.  asyncio.run()
+# creates a new event loop each time, so a cached app's task group would be
+# stale on warm invocations and cause an ExceptionGroup on the second call.
 
-_app = None
 
-
-def _get_app():
-    global _app
-    if _app is None:
-        _app = mcp.streamable_http_app()
-    return _app
-
-
-async def _handle(event: dict) -> dict:
-    app = _get_app()
-
+async def _http_call(app, event: dict) -> dict:
+    """Build an ASGI HTTP scope from an API Gateway v2 event and call the app."""
     request_context = event.get("requestContext", {})
     http_info = request_context.get("http", {})
 
     raw_headers = event.get("headers") or {}
-    asgi_headers = [(k.lower().encode(), v.encode()) for k, v in raw_headers.items()]
+    # Drop the 'host' header — Starlette's TrustedHostMiddleware only allows localhost
+    # by default and would return 421 for the API Gateway domain. The MCP server doesn't
+    # use the host for routing, so dropping it is safe.
+    asgi_headers = [
+        (k.lower().encode(), v.encode())
+        for k, v in raw_headers.items()
+        if k.lower() != "host"
+    ]
 
     body_raw = event.get("body") or b""
     if event.get("isBase64Encoded"):
@@ -139,10 +147,49 @@ async def _handle(event: dict) -> dict:
     }
 
 
+async def _dispatch(event: dict) -> dict:
+    """Run ASGI lifespan startup, handle one HTTP request, then shut down."""
+    app = mcp.streamable_http_app()
+
+    startup_complete = anyio.Event()
+    shutdown_trigger = anyio.Event()
+    result: list[dict] = []
+
+    async def lifespan_runner() -> None:
+        sent_startup = False
+
+        async def receive() -> dict:
+            nonlocal sent_startup
+            if not sent_startup:
+                sent_startup = True
+                return {"type": "lifespan.startup"}
+            await shutdown_trigger.wait()
+            return {"type": "lifespan.shutdown"}
+
+        async def send(message: dict) -> None:
+            if message["type"] in ("lifespan.startup.complete", "lifespan.startup.failed"):
+                startup_complete.set()
+
+        await app({"type": "lifespan", "asgi": {"version": "3.0"}, "state": {}}, receive, send)
+
+    async def http_runner() -> None:
+        await startup_complete.wait()
+        try:
+            result.append(await _http_call(app, event))
+        finally:
+            shutdown_trigger.set()
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(lifespan_runner)
+        tg.start_soon(http_runner)
+
+    return result[0] if result else {"statusCode": 500, "body": "no response", "headers": {}, "isBase64Encoded": False}
+
+
 def handler(event, context):
     logger.debug(
-        "Lambda Function URL event: method=%s path=%s",
+        "MCP: method=%s path=%s",
         event.get("requestContext", {}).get("http", {}).get("method"),
         event.get("requestContext", {}).get("http", {}).get("path"),
     )
-    return asyncio.run(_handle(event))
+    return asyncio.run(_dispatch(event))
