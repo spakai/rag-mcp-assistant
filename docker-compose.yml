@@ -5,6 +5,6 @@ services:
       - "4566:4566"
     environment:
       - LOCALSTACK_AUTH_TOKEN=${LOCALSTACK_AUTH_TOKEN}
-      - SERVICES=s3,lambda,dynamodb,iam
+      - SERVICES=s3,lambda,dynamodb,iam,apigatewayv2
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock"
