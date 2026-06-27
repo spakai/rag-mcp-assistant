@@ -1,0 +1,66 @@
+AWS Well-Architected Framework Overview
+
+The AWS Well-Architected Framework provides a consistent set of best practices
+for designing and evaluating cloud architectures. It helps organizations build
+secure, high-performing, resilient, and efficient infrastructure. The framework
+is organized around five pillars: Operational Excellence, Security, Reliability,
+Performance Efficiency, and Cost Optimization.
+
+Pillar 1 — Operational Excellence
+
+Operational Excellence focuses on running and monitoring systems to deliver
+business value, and continually improving processes and procedures. Key design
+principles include performing operations as code, making frequent, small,
+reversible changes, and learning from operational failures. Teams should
+anticipate failures and refine their operational procedures. Effective runbooks
+and playbooks help operators respond consistently to events.
+
+Pillar 2 — Security
+
+The Security pillar covers the ability to protect data, systems, and assets
+while delivering business value. Core principles include applying the principle
+of least privilege to all identities, enabling traceability by logging and
+auditing all actions, automating security best practices, and protecting data
+in transit and at rest using encryption. Security must be applied at every
+layer of the architecture rather than treated as an afterthought. Incident
+response plans should be practiced regularly.
+
+Pillar 3 — Reliability
+
+Reliability is the ability of a workload to perform its intended function
+correctly and consistently when expected to do so. Design principles include
+testing recovery procedures, automatically recovering from failure, and scaling
+horizontally to increase aggregate workload availability. Reliability requires
+that you test your ability to recover from failures and validate that your
+recovery procedures actually work. Distributed systems should be designed with
+the assumption that any component can fail at any time.
+
+Pillar 4 — Performance Efficiency
+
+Performance Efficiency focuses on the efficient use of computing resources to
+meet system requirements and to maintain that efficiency as demand changes and
+technologies evolve. Key practices include selecting the right resource types
+and sizes, monitoring performance, and making informed decisions to maintain
+efficiency as business needs evolve. Teams should experiment more often, use
+serverless architectures where appropriate, and consider mechanical sympathy
+when making technology choices.
+
+Pillar 5 — Cost Optimization
+
+Cost Optimization focuses on avoiding unnecessary costs. Core design principles
+include implementing cloud financial management, adopting a consumption model,
+measuring overall efficiency, and stopping spending money on undifferentiated
+heavy lifting by using managed services. Organizations should analyze and
+attribute expenditure to understand where money is being spent and ensure that
+resources are sized correctly for the workload. Using reserved capacity for
+predictable workloads reduces cost compared to on-demand pricing.
+
+Applying the Framework
+
+The five pillars should be considered holistically. Improving one pillar often
+improves others. For example, automating infrastructure (Operational Excellence)
+also improves Reliability and Security. AWS provides Well-Architected Tool in
+the console to perform reviews against these pillars and generate improvement
+plans. Solution architects use the framework to evaluate trade-offs deliberately
+rather than by accident, enabling them to build the right architecture for the
+right reasons at the right time.

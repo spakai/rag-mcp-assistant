@@ -1,0 +1,38 @@
+[
+  {
+    "id": "q001",
+    "question": "What are the five pillars of the AWS Well-Architected Framework?",
+    "expected_source_keys": ["documents/aws-well-architected.txt"],
+    "expected_answer_keywords": [
+      "Operational Excellence",
+      "Security",
+      "Reliability",
+      "Performance Efficiency",
+      "Cost Optimization"
+    ]
+  },
+  {
+    "id": "q002",
+    "question": "What design principles does the Security pillar of the Well-Architected Framework recommend?",
+    "expected_source_keys": ["documents/aws-well-architected.txt"],
+    "expected_answer_keywords": ["least privilege", "encryption", "traceability"]
+  },
+  {
+    "id": "q003",
+    "question": "What S3 storage classes are available for infrequently accessed data?",
+    "expected_source_keys": ["documents/aws-s3-overview.txt"],
+    "expected_answer_keywords": ["Standard-IA", "One Zone-IA"]
+  },
+  {
+    "id": "q004",
+    "question": "How does S3 versioning protect against accidental deletions?",
+    "expected_source_keys": ["documents/aws-s3-overview.txt"],
+    "expected_answer_keywords": ["delete marker", "version"]
+  },
+  {
+    "id": "q005",
+    "question": "What durability does Amazon S3 provide for stored objects?",
+    "expected_source_keys": ["documents/aws-s3-overview.txt"],
+    "expected_answer_keywords": ["99.999999999", "eleven nines", "durability"]
+  }
+]
