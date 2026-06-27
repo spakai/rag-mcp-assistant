@@ -1,5 +1,7 @@
 import json
+import time
 from datetime import datetime, timezone
+from botocore.exceptions import ClientError
 
 
 def replace_document_vectors(
@@ -89,13 +91,26 @@ def replace_document_vectors(
         raise
 
 
-def _begin_transaction(rdsdata_client, cluster_arn: str, secret_arn: str, database: str) -> str:
-    response = rdsdata_client.begin_transaction(
-        resourceArn=cluster_arn,
-        secretArn=secret_arn,
-        database=database,
-    )
-    return response["transactionId"]
+def _begin_transaction(
+    rdsdata_client, cluster_arn: str, secret_arn: str, database: str, max_retries: int = 4
+) -> str:
+    last_error = None
+    for attempt in range(max_retries + 1):
+        try:
+            response = rdsdata_client.begin_transaction(
+                resourceArn=cluster_arn,
+                secretArn=secret_arn,
+                database=database,
+            )
+            return response["transactionId"]
+        except ClientError as exc:
+            last_error = exc
+            code = exc.response.get("Error", {}).get("Code", "")
+            if code in ("DatabaseResumingException", "ThrottlingException") and attempt < max_retries:
+                time.sleep(min(20 * (attempt + 1), 60))
+                continue
+            raise
+    raise last_error
 
 
 def _execute(

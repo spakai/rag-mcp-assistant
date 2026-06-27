@@ -15,10 +15,16 @@ import os
 import subprocess
 import sys
 
-import boto3
+# Repo root must be on sys.path so `evals` and `src` resolve when this script
+# is run directly as `python evals/run_eval.py` from the repo root.
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
-from evals.scorer import score_answer, score_retrieval
-from src.query.retrieval import retrieve_and_answer, retrieve_chunks
+import boto3  # noqa: E402
+
+from evals.scorer import score_answer, score_retrieval  # noqa: E402
+from src.query.retrieval import retrieve_and_answer, retrieve_chunks  # noqa: E402
 
 _HERE = os.path.dirname(__file__)
 GOLDEN_SET_PATH = os.path.join(_HERE, "golden_set.json")
