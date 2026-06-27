@@ -50,24 +50,25 @@ config:
 flowchart TB
     user["Knowledge worker<br><i>Uploads docs · asks questions</i>"]
     agent["External AI agent<br><i>MCP client</i>"]
-    bedrock["Amazon Bedrock<br><i>Titan Embed V2 · Nova Micro</i>"]
 
     subgraph rag["RAG Knowledge Assistant"]
         s3["S3 Document Bucket<br><i>documents/ prefix triggers ingestion</i>"]
-        ingest["Ingestion Lambda<br><i>extract → chunk → embed → store</i>"]
-        store[("Aurora Serverless v2<br><i>pgvector · chunks + vectors</i>")]
-        queryapi["Query API<br><i>API Gateway v2 + Lambda · POST /ask</i>"]
         mcpserver["MCP Server<br><i>API Gateway v2 + Lambda · FastMCP</i>"]
+        ingest["Ingestion Lambda<br><i>extract → chunk → embed → store</i>"]
+        queryapi["Query API<br><i>API Gateway v2 + Lambda · POST /ask</i>"]
+        store[("Aurora Serverless v2<br><i>pgvector · chunks + embeddings</i>")]
     end
 
+    bedrock["Amazon Bedrock<br><i>Titan Embed V2 · Nova Micro</i>"]
+
     user -->|"S3 PutObject"| s3
-    s3 -->|"ObjectCreated event"| ingest
-    ingest -->|"embed chunks · HTTPS"| bedrock
-    ingest -->|"write vectors · Data API"| store
-    user -->|"POST /ask · HTTPS"| queryapi
     agent -->|"tools/call · MCP"| mcpserver
+    s3 -->|"ObjectCreated event"| ingest
     mcpserver -. "shared retrieval core" .-> queryapi
+    user -->|"POST /ask · HTTPS"| queryapi
+    ingest -->|"write vectors · Data API"| store
     queryapi -->|"vector search · Data API"| store
+    ingest -->|"embed chunks · HTTPS"| bedrock
     queryapi -->|"generate answer · HTTPS"| bedrock
 
     classDef internal fill:#1168bd,stroke:#0b4884,color:#fff
