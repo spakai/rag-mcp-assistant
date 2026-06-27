@@ -89,3 +89,12 @@ jobs:
         run: bash scripts/deploy-aws.sh
       - name: Run real-AWS integration tests
         run: RUN_AWS_INTEGRATION=1 pytest tests/integration/ -v
+      - name: Seed evaluation documents
+        run: bash scripts/seed.sh
+      - name: Wait for ingestion
+        run: sleep 35
+      - name: Run evaluation harness
+        env:
+          BEDROCK_EMBEDDING_MODEL_ID: amazon.titan-embed-text-v2:0
+          BEDROCK_GENERATION_MODEL_ID: amazon.nova-micro-v1:0
+        run: python evals/run_eval.py
