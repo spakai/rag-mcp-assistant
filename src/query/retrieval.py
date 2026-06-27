@@ -78,23 +78,37 @@ def _search_chunks(
     database: str,
     query_embedding: list[float],
     top_k: int,
+    max_retries: int = 4,
 ) -> list[dict]:
-    response = rdsdata_client.execute_statement(
-        resourceArn=cluster_arn,
-        secretArn=secret_arn,
-        database=database,
-        sql=(
-            "SELECT chunk_index, text, source_key "
-            "FROM chunks "
-            "ORDER BY embedding <=> :qv::vector "
-            "LIMIT :k"
-        ),
-        parameters=[
-            {"name": "qv", "value": {"stringValue": json.dumps(query_embedding)}},
-            {"name": "k", "value": {"longValue": top_k}},
-        ],
-        includeResultMetadata=True,
-    )
+    last_error = None
+    for attempt in range(max_retries + 1):
+        try:
+            response = rdsdata_client.execute_statement(
+                resourceArn=cluster_arn,
+                secretArn=secret_arn,
+                database=database,
+                sql=(
+                    "SELECT chunk_index, text, source_key "
+                    "FROM chunks "
+                    "ORDER BY embedding <=> :qv::vector "
+                    "LIMIT :k"
+                ),
+                parameters=[
+                    {"name": "qv", "value": {"stringValue": json.dumps(query_embedding)}},
+                    {"name": "k", "value": {"longValue": top_k}},
+                ],
+                includeResultMetadata=True,
+            )
+            break
+        except ClientError as exc:
+            last_error = exc
+            code = exc.response.get("Error", {}).get("Code", "")
+            if code in ("DatabaseResumingException", "ThrottlingException") and attempt < max_retries:
+                time.sleep(min(20 * (attempt + 1), 60))
+                continue
+            raise
+    else:
+        raise last_error
 
     columns = [col["label"] for col in response.get("columnMetadata", [])]
     rows = response.get("records", [])
