@@ -1,0 +1,62 @@
+Amazon S3 Overview
+
+Amazon Simple Storage Service (Amazon S3) is an object storage service offering
+industry-leading scalability, data availability, security, and performance.
+Organizations of all sizes and industries can use S3 to store and protect any
+amount of data for a range of use cases, including data lakes, websites, mobile
+applications, backup and restore, archive, enterprise applications, and big data
+analytics.
+
+Buckets and Objects
+
+S3 stores data as objects within resources called buckets. An object consists
+of a file and any metadata that describes that file. A bucket is a container
+for objects. Every object is contained within a bucket. Bucket names must be
+globally unique across all AWS accounts. S3 supports a flat structure with no
+true directories, although key prefixes can simulate a folder hierarchy.
+
+Storage Classes
+
+Amazon S3 offers a range of storage classes designed for different use cases.
+S3 Standard is designed for frequently accessed data. S3 Standard-IA (Infrequent
+Access) is designed for data that is accessed less frequently but requires rapid
+access when needed; it has a lower storage price but charges a retrieval fee.
+S3 One Zone-IA stores data in a single Availability Zone and costs less than
+Standard-IA; it is suitable for infrequently accessed data that does not require
+the multi-AZ resilience of Standard-IA. S3 Glacier Instant Retrieval is designed
+for rarely accessed data that still needs millisecond retrieval. S3 Glacier
+Flexible Retrieval is for archive data that is accessed once or twice per year
+with retrieval times ranging from minutes to hours. S3 Glacier Deep Archive is
+the lowest-cost storage class and supports long-term retention of data that is
+accessed once or twice per year.
+
+Versioning
+
+S3 versioning allows you to keep multiple versions of an object in the same
+bucket. When you enable versioning on a bucket, S3 assigns a unique version ID
+to each object stored. If you delete a versioned object without specifying a
+version ID, S3 does not permanently delete the object; instead it inserts a
+delete marker. The delete marker becomes the current version of the object. To
+restore a previous version of an object you simply delete the delete marker or
+specify the version ID of an earlier version. Versioning protects against
+accidental deletions and application errors.
+
+Durability and Availability
+
+Amazon S3 is designed to provide 99.999999999 percent (eleven nines) of data
+durability for objects over a given year. This high durability is achieved by
+automatically storing data redundantly across multiple devices in multiple
+Availability Zones within an AWS Region. S3 Standard is designed for 99.99
+percent availability over a given year. The combination of durability and
+availability makes S3 suitable as a reliable foundation for data storage in
+cloud architectures aligned with the Reliability pillar of the AWS
+Well-Architected Framework.
+
+Security and Access Control
+
+S3 integrates with AWS Identity and Access Management (IAM) to control access
+to buckets and objects. Access can be granted using IAM policies, bucket
+policies, and S3 Access Control Lists. By default, all S3 resources are private.
+Server-side encryption can be applied automatically to objects as they are
+stored. S3 Block Public Access settings can be applied at the account or bucket
+level to prevent accidental public exposure of data.
