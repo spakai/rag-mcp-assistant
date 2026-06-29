@@ -5,8 +5,7 @@ ingested into a vector store; users (and other AI agents, via MCP) ask questions
 and get answers grounded in the documents, with citations. Built as a learning
 project targeting AWS SAA-C03 and GitHub GH-600.
 
-Diagrams are Mermaid (C4 model) and render on GitHub. Mermaid C4 is experimental,
-so the tables describe the same thing in text.
+Diagrams are Mermaid flowcharts and render on GitHub.
 
 ## Two paths
 
@@ -44,30 +43,40 @@ flowchart TB
 ## Level 2 — Container
 
 ```mermaid
-C4Container
-    title Container Diagram — RAG knowledge assistant
+---
+config:
+  layout: elk
+---
+flowchart TB
+    user["Knowledge worker<br><i>Uploads docs · asks questions</i>"]
+    agent["External AI agent<br><i>MCP client</i>"]
 
-    Person(user, "Knowledge worker")
-    System_Ext(agent, "External AI agent", "MCP client")
-    System_Ext(bedrock, "Amazon Bedrock", "Embeddings + LLM")
+    subgraph rag["RAG Knowledge Assistant"]
+        s3["S3 Document Bucket<br><i>documents/ prefix triggers ingestion</i>"]
+        mcpserver["MCP Server<br><i>API Gateway v2 + Lambda · FastMCP</i>"]
+        ingest["Ingestion Lambda<br><i>extract → chunk → embed → store</i>"]
+        queryapi["Query API<br><i>API Gateway v2 + Lambda · POST /ask</i>"]
+        store[("Aurora Serverless v2<br><i>pgvector · chunks + embeddings</i>")]
+    end
 
-    System_Boundary(rag, "RAG Knowledge Assistant") {
-        Container(docs, "Document Bucket", "Amazon S3", "Holds uploaded documents under documents/")
-        Container(ingest, "Ingestion", "AWS Lambda (or Step Functions)", "Extract text, chunk, embed, store")
-        ContainerDb(store, "Vector Store", "Aurora PostgreSQL Serverless v2 + pgvector", "Chunks, embeddings, document metadata")
-        Container(api, "Query API", "API Gateway + Lambda", "Embed question, retrieve, generate answer")
-        Container(mcp, "MCP Server", "Lambda", "Exposes search + ask as MCP tools")
-    }
+    bedrock["Amazon Bedrock<br><i>Titan Embed V2 · Nova Micro</i>"]
 
-    Rel(user, docs, "Uploads documents", "S3 PutObject")
-    Rel(docs, ingest, "ObjectCreated (documents/)", "S3 event")
-    Rel(ingest, bedrock, "Embeds chunks", "HTTPS")
-    Rel(ingest, store, "Writes chunks + vectors", "Data API")
-    Rel(user, api, "Asks questions", "HTTPS")
-    Rel(agent, mcp, "Calls tools", "MCP")
-    Rel(api, store, "Vector search", "Data API")
-    Rel(api, bedrock, "Generates answer", "HTTPS")
-    Rel(mcp, api, "Reuses query core", "internal")
+    user -->|"S3 PutObject"| s3
+    agent -->|"tools/call · MCP"| mcpserver
+    s3 -->|"ObjectCreated event"| ingest
+    mcpserver -. "shared retrieval core" .-> queryapi
+    user -->|"POST /ask · HTTPS"| queryapi
+    ingest -->|"write vectors · Data API"| store
+    queryapi -->|"vector search · Data API"| store
+    ingest -->|"embed chunks · HTTPS"| bedrock
+    queryapi -->|"generate answer · HTTPS"| bedrock
+
+    classDef internal fill:#1168bd,stroke:#0b4884,color:#fff
+    classDef db fill:#2d6a4f,stroke:#1b4332,color:#fff
+    classDef external fill:#8a8a8a,stroke:#5e5e5e,color:#fff
+    class s3,ingest,queryapi,mcpserver internal
+    class store db
+    class user,agent,bedrock external
 ```
 
 | Container | Technology | Notes |
